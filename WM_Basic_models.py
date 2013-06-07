@@ -1,12 +1,36 @@
 #All of my imports
 import numpy as np
-import pylab
+import matplotlib
+##matplotlib.use('PS')
 import time
 import math
 import os
 from scipy import interpolate
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+
+
+#This section will ask the user what to do
+#The options are plotting a figure of lifetime integrated Q0 production vs. initial mass or
+#plotting total ionizing photon production vs total mass of a population
+plotQ0 = False
+imfAdjust = False
+
+print "What would you like to do?\n"
+print "(1) Plot lifetime integrated Q0 vs. Initial mass.\n"
+print "(2) Plot total ionizing photons integrated over an IMF.\n"
+
+decision = input("(1 or 2)? ")
+if decision == 1:
+    plotQ0 = True
+    print "This is happening, right?"
+elif decision == 2:
+    imfAdjust = True
+else:
+    print "You chose wrong, try again."
+
+
+
 
 start=time.time()
 
@@ -21,7 +45,9 @@ c=2.99e10        #speed of light
 k=1.38e-16       #boltzmans constant
 nanometer = 1e-7 # conversion from nanometers to centimeters
 angstrom = 1e-8  # conversion from angstroms to centimeters
+beta = -2.5
 logq0ints = np.zeros(9)
+
 
 
 #These are hard coded parameters for the models
@@ -107,11 +133,49 @@ def loggtracks(masslimit,location,fileroot, metalstr, plot=True):
 def gridplot(plot=True):
     print "Plotting the grid."
     if plot == True:
-        pylab.plot(ModelTs, ModelGs, '+', color='blue', markersize=10)
+        plt.plot(ModelTs, ModelGs, '+', color='blue', markersize=10)
     
 
 
+#Function IMFconst
+#  takes arguments of:
+#  totalmass:   total mass of a population
+#It is given a total mass and integrates an IMF from Kroupa 2001 to find the normalization constant
+#it then returns that value
+def IMFconst():
 
+    masstot = []
+    imftot = []
+    masslow = np.arange(0.01, 0.08, 0.01)
+    massmed = np.arange(0.08, 0.5, 0.01)
+    masshigh = np.arange(0.5, 120.5, 0.5)
+    imflow = masslow ** (-0.3+1)
+    imfmed = massmed ** (-1.3+1)
+    imfhigh = masshigh ** (beta+1)
+    masstot = np.append(masstot, np.append(masslow, np.append(massmed, masshigh)))
+    imftot = np.append(imftot, np.append(imflow, np.append(imfmed, imfhigh)))
+    
+    integratedmass = np.trapz(imftot, masstot, 0.01)
+
+
+    return integratedmass  
+
+
+
+
+#function imfMultiply
+#  takes arguments of:
+#  massarr:    initial mass array
+#  logq0ints:  lifetime integrated Q0 for each initial mass
+#  C:          normalization constant
+#The function multiplies the array logq0ints by an imf then integrates it and returns that value
+#The integral is negative because the massarr is in decending order
+def imfMultiply(massarr, logq0ints):  
+    IMF = massarr[0:6] ** beta
+    QofMtot = -np.trapz(IMF * logq0ints[0:6], massarr[0:6], 1)
+    return QofMtot
+    
+    
 
 
 
@@ -143,6 +207,7 @@ for metalicity in range(3):
         n_models=n_models+1
         model=model+1
     
+
     print "Reading in model spectra and integrating."
     for model in range(n_models):
         #The filename for the spectrum
@@ -162,7 +227,7 @@ for metalicity in range(3):
         #Integrate the spectra to get the ionizing photon numbers
         #the Highlimit value can be changed to easily pick a different continuum, HeII for example
         lowlimit = 0.
-        highlimit = 912
+        highlimit = 912.
         indices = (wavelengths > lowlimit) & (wavelengths < highlimit)
         integrand = math.pi * wavelengths * Flambda / (h*c)
         q0 = -np.trapz(integrand[indices], wavelengths[indices])
@@ -178,6 +243,7 @@ for metalicity in range(3):
         newline = [ModelTs[model], ModelGs[model], logphotons]
         Grid=np.append(Grid,newline).reshape(model+1,3)
  
+
     #This is the interpolation function for the grid
     print "Interpolating the spectra on a grid."
     gridq0s = (interpolate.bisplrep(Grid[:,0],Grid[:,1],Grid[:,2]))
@@ -186,7 +252,6 @@ for metalicity in range(3):
     gridplot(False)
     #Define the x and y coords of the interpolated array
     xnew,ynew = np.mgrid[0:70000:200j, -1:5:200j]
-    
     #Make the final 2D array that has our interpolated data in it
     znew = interpolate.bisplev(xnew[:,0],ynew[0,:],gridq0s)
     #Bring the data out of log space
@@ -205,27 +270,62 @@ for metalicity in range(3):
     psym=['k^','bo','rs']
     metals=['0.02','0.004','0.04']
     label='Z = '+metals[metalicity]
-    #Plot the data points with different symbols and colors
-    plt.plot(massarr[0:6], logq0ints[0:6]/(1e63), psym[metalicity], markersize=12,label=label)
-
     #Define the different lines to be plotted for each metalicity
     linestyle=['k-','b--','r:']
-    #Two different lines to plot.  The first is a line connecting the data,
-    #  and the second is a linear fit to the data
-    plt.plot(massarr[0:6], logq0ints[0:6]/(1e63), linestyle[metalicity], linewidth=3)
-    #plt.plot(massarr[0:6], m*massarr[0:6]+c,  linestyle[metalicity], linewidth=3,label=label)
+
+
+    #if the user chose to plot lifetime integrated Q0 vs initial mass
+    if plotQ0 == True:
+        #Plot the data points with different symbols and colors
+        plt.plot(massarr[0:6], logq0ints[0:6]/(1e63), psym[metalicity], markersize=6,label=label)
+
+
+        #Two different lines to plot.  The first is a line connecting the data,
+        #  and the second is a linear fit to the data
+        plt.plot(massarr[0:6], logq0ints[0:6]/(1e63), linestyle[metalicity], linewidth=1.5)
+        #plt.plot(massarr[0:6], m*massarr[0:6]+c,  linestyle[metalicity], linewidth=3,label=label)
     
 
 
-#This makes the plot, it puts the legend in the upper left and has font sizes of 30
+    #This will multiply the Q0 function by an imf and integrate it, if the user chose to
+    if imfAdjust == True:
+        #This is a blank array initialization
+        #This is the range of total masses
+        #for each total mass of a population
+        integratedmass = IMFconst()
+        #this calls the procedure IMFconst, which takes args of a total mass and returns a value for the normalization const
+            #This line calls the function imfMultiply which takes args of the initial mass array, the lifetime integrated
+            #  photon fluxes, and the normalization constant.  It returns the total ionizing flux for a population
+            #  with that mass
+        QofTotalMass = imfMultiply(massarr, logq0ints)
+        #This plots the functions on a log plot
+       # plt.plot(np.log10(totalMasses), (QofTotalMass), linestyle[metalicity], linewidth = 3, label=label)
+        print "For metalicity of Z="+str(metals[metalicity])+"The ionizing photons per solar mass are: "+str(QofTotalMass/integratedmass)
+
+
+
+#This makes the plot
 print "Showing the data."
-plt.legend(loc="upper left",prop={'size':30})
-plt.gcf().subplots_adjust(bottom=0.17)
-plt.xlim([15,125])
-plt.ylim([0,8])
-plt.xlabel(r"Mass in M$_\odot$",fontsize=50)
-plt.ylabel(r"Integrated Q$_0$  [1e63]",fontsize=50)
-plt.tick_params(axis='both', which='major', labelsize=50)
+if imfAdjust == True:
+    print "imfAdjust is True"
+    plt.legend(loc="upper left",prop={'size':15})
+    plt.tick_params(axis='both', which='major', labelsize=15)
+    plt.xlabel(r"Log$[\rm M_{\rm tot}$]", fontsize=15)
+    plt.ylabel("Total $Q_0$", fontsize=15)
+    #plt.savefig('IMFLifeIntegratedQ0.ps')
+
+if plotQ0 == True:
+    plt.legend(loc="upper left",prop={'size':15})
+    plt.gcf().subplots_adjust(bottom=0.17)
+    plt.xlim([15,125])
+    plt.ylim([0,8])
+    plt.xlabel(r"Initial Mass  (M$_\odot$)",fontsize=15)
+    plt.ylabel(r"Lifetime Integrated $Q_0$  [1e63]",fontsize=15)
+    plt.tick_params(axis='both', which='major', labelsize=15)
+    #plt.savefig('LifeIntegratedQ0.ps')
+
+#Show the figure
 print "This program took: "+str(time.time()-start) + " to run"
 plt.show()
+
 
